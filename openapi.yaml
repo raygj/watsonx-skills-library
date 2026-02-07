@@ -1,0 +1,436 @@
+openapi: 3.0.0
+info:
+  title: Vault Secrets Auditor API
+  version: 1.0.0
+  description: |
+    HashiCorp Vault secrets auditing service with risk scoring and migration planning.
+    Integrates Vault MCP + Vault Radar MCP for comprehensive secrets lifecycle management.
+    
+    **Key Features:**
+    - Scan Vault paths for static secrets
+    - Cross-reference with Vault Radar leaked secrets
+    - Risk scoring (0-10 scale) with compliance mapping
+    - Prioritized migration roadmaps (P0/P1/P2)
+    - ROI calculations for remediation efforts
+
+servers:
+  - url: http://localhost:8000
+    description: Local development server
+  - url: https://vault-auditor.watsonx.ibm.com
+    description: Production watsonx Orchestrate deployment
+
+tags:
+  - name: Audit
+    description: Secrets scanning and risk assessment operations
+  - name: Compliance
+    description: Compliance rules and policy templates
+
+paths:
+  /audit-secrets:
+    post:
+      operationId: auditSecrets
+      summary: Scan for static secrets and generate migration roadmap
+      description: |
+        Comprehensive secrets audit combining:
+        - Vault MCP (KV v2 secrets scanning)
+        - Vault Radar MCP (leaked secrets detection)
+        - Git repository scanning (entropy analysis)
+        
+        Returns risk-scored findings with prioritized remediation plan.
+      tags:
+        - Audit
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required:
+                - scan_targets
+              properties:
+                scan_targets:
+                  type: array
+                  description: List of targets to scan for secrets
+                  items:
+                    type: object
+                    required:
+                      - type
+                      - location
+                    properties:
+                      type:
+                        type: string
+                        enum:
+                          - vault_path
+                          - git_repo
+                          - config_file
+                        description: Type of target to scan
+                      location:
+                        type: string
+                        description: |
+                          Path or location to scan:
+                          - vault_path: "secret/data/prod"
+                          - git_repo: "/path/to/repo" or "https://github.com/org/repo"
+                          - config_file: "/path/to/config.yaml"
+                  example:
+                    - type: vault_path
+                      location: secret/data/production
+                    - type: vault_path
+                      location: secret/data/shared
+                include_radar_findings:
+                  type: boolean
+                  default: true
+                  description: Cross-reference with Vault Radar for leaked secrets
+            examples:
+              production_audit:
+                summary: Audit production Vault paths
+                value:
+                  scan_targets:
+                    - type: vault_path
+                      location: secret/data/prod
+                    - type: vault_path
+                      location: secret/data/shared
+                  include_radar_findings: true
+              
+              comprehensive_scan:
+                summary: Full scan (Vault + Git + Radar)
+                value:
+                  scan_targets:
+                    - type: vault_path
+                      location: secret/data/
+                    - type: git_repo
+                      location: /home/repos/infrastructure
+                  include_radar_findings: true
+
+      responses:
+        '200':
+          description: Audit results with risk-scored findings
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AuditResult'
+              examples:
+                critical_findings:
+                  summary: Audit with critical findings
+                  value:
+                    total_secrets: 47
+                    critical_count: 12
+                    high_count: 18
+                    medium_count: 15
+                    low_count: 2
+                    findings:
+                      - id: a7f3d9e1c5b2
+                        type: vault_static
+                        location: secret/data/prod/database-creds
+                        secret_name: postgres-admin
+                        last_rotated: "2023-05-12T08:30:00Z"
+                        age_days: 268
+                        risk_score: 10
+                        risk_level: critical
+                        metadata:
+                          versions: 1
+                          environment: production
+                          compliance_scope: pci-dss
+                      - id: b2c4f7a9d6e8
+                        type: radar_finding
+                        location: github.com/company/api/config.yml
+                        secret_name: AWS_SECRET_KEY
+                        last_rotated: null
+                        age_days: null
+                        risk_score: 9
+                        risk_level: critical
+                        metadata:
+                          severity: critical
+                          source: github
+                          exposed_since: "2024-11-15"
+                    risk_scores:
+                      a7f3d9e1c5b2: 10
+                      b2c4f7a9d6e8: 9
+                    migration_roadmap:
+                      P0_immediate:
+                        - secret/data/prod/database-creds
+                        - github.com/company/api/config.yml
+                      P1_30_days:
+                        - secret/data/prod/api-keys
+                        - secret/data/shared/service-accounts
+                      P2_90_days:
+                        - secret/data/dev/test-credentials
+                    estimated_savings:
+                      potential_breach_cost_avoided: "$2,670,000"
+                      secrets_requiring_rotation: 30
+                      estimated_migration_hours: 68
+                      roi_multiplier: "26.7x"
+
+        '400':
+          description: Invalid request parameters
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        
+        '401':
+          description: Vault authentication failed
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+        
+        '500':
+          description: Internal server error
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Error'
+
+  /compliance-rules:
+    get:
+      operationId: getComplianceRules
+      summary: Get compliance framework rules for secrets management
+      description: |
+        Returns compliance requirements from:
+        - PCI-DSS (Payment Card Industry)
+        - SOX (Sarbanes-Oxley)
+        - HIPAA (Health Insurance Portability)
+        - FEDRAMP (Federal Risk Authorization)
+      tags:
+        - Compliance
+      responses:
+        '200':
+          description: Compliance rules by framework
+          content:
+            application/json:
+              schema:
+                type: object
+                additionalProperties:
+                  type: object
+                  additionalProperties:
+                    type: string
+              example:
+                PCI-DSS:
+                  requirement_3.4: "Secrets must be rotated every 90 days"
+                  requirement_8.2: "No shared credentials across environments"
+                  requirement_10.2: "All secret access must be logged"
+                SOX:
+                  section_404: "Separation of duties - no single person has create+delete"
+                  audit_trail: "Immutable audit logs for all secret operations"
+                HIPAA:
+                  "164.312": "Encryption at rest and in transit for all PHI secrets"
+                  "164.308": "Access controls with least-privilege"
+
+components:
+  schemas:
+    AuditResult:
+      type: object
+      required:
+        - total_secrets
+        - critical_count
+        - high_count
+        - medium_count
+        - low_count
+        - findings
+        - risk_scores
+        - migration_roadmap
+        - estimated_savings
+      properties:
+        total_secrets:
+          type: integer
+          description: Total number of secrets found
+        critical_count:
+          type: integer
+          description: Number of critical risk secrets (score 9-10)
+        high_count:
+          type: integer
+          description: Number of high risk secrets (score 7-8)
+        medium_count:
+          type: integer
+          description: Number of medium risk secrets (score 4-6)
+        low_count:
+          type: integer
+          description: Number of low risk secrets (score 1-3)
+        findings:
+          type: array
+          description: Detailed list of all secret findings
+          items:
+            $ref: '#/components/schemas/SecretFinding'
+        risk_scores:
+          type: object
+          description: Map of finding IDs to risk scores (0-10)
+          additionalProperties:
+            type: integer
+            minimum: 0
+            maximum: 10
+        migration_roadmap:
+          $ref: '#/components/schemas/MigrationRoadmap'
+        estimated_savings:
+          $ref: '#/components/schemas/EstimatedSavings'
+
+    SecretFinding:
+      type: object
+      required:
+        - id
+        - type
+        - location
+        - secret_name
+        - risk_score
+        - risk_level
+      properties:
+        id:
+          type: string
+          description: Unique identifier for this finding
+          example: a7f3d9e1c5b2
+        type:
+          type: string
+          enum:
+            - vault_static
+            - git_repo
+            - config_file
+            - radar_finding
+          description: Source type of the secret finding
+        location:
+          type: string
+          description: Full path or URL where secret was found
+          example: secret/data/prod/database-creds
+        secret_name:
+          type: string
+          description: Name or key of the secret
+          example: postgres-admin
+        last_rotated:
+          type: string
+          format: date-time
+          nullable: true
+          description: ISO 8601 timestamp of last rotation
+        age_days:
+          type: integer
+          nullable: true
+          description: Number of days since secret was created/rotated
+        risk_score:
+          type: integer
+          minimum: 0
+          maximum: 10
+          description: Calculated risk score (0-10)
+        risk_level:
+          type: string
+          enum:
+            - critical
+            - high
+            - medium
+            - low
+          description: Risk severity level
+        metadata:
+          type: object
+          description: Additional context about the finding
+          properties:
+            versions:
+              type: integer
+              description: Number of secret versions (Vault only)
+            current_version:
+              type: integer
+              description: Current version number (Vault only)
+            vault_path:
+              type: string
+              description: Original Vault path
+            environment:
+              type: string
+              enum: [production, staging, development]
+              description: Environment where secret is used
+            compliance_scope:
+              type: string
+              enum: [pci-dss, sox, hipaa, fedramp]
+              description: Applicable compliance framework
+            severity:
+              type: string
+              enum: [critical, high, medium, low]
+              description: Radar severity rating
+            source:
+              type: string
+              description: Where secret was leaked (Radar findings)
+            exposed_since:
+              type: string
+              format: date
+              description: Date when secret was first exposed (Radar)
+
+    MigrationRoadmap:
+      type: object
+      description: Prioritized action plan for secret rotation
+      required:
+        - P0_immediate
+        - P1_30_days
+        - P2_90_days
+      properties:
+        P0_immediate:
+          type: array
+          description: Critical secrets requiring immediate rotation
+          items:
+            type: string
+          example:
+            - secret/data/prod/database-creds
+            - secret/data/prod/aws-keys
+        P1_30_days:
+          type: array
+          description: High-priority secrets to rotate within 30 days
+          items:
+            type: string
+          example:
+            - secret/data/prod/api-keys
+            - secret/data/shared/service-accounts
+        P2_90_days:
+          type: array
+          description: Medium-priority secrets to rotate within 90 days
+          items:
+            type: string
+          example:
+            - secret/data/dev/test-credentials
+
+    EstimatedSavings:
+      type: object
+      description: Financial impact calculations for secret rotation
+      required:
+        - potential_breach_cost_avoided
+        - secrets_requiring_rotation
+        - estimated_migration_hours
+      properties:
+        potential_breach_cost_avoided:
+          type: string
+          description: Estimated breach cost reduction (formatted currency)
+          example: "$2,670,000"
+        secrets_requiring_rotation:
+          type: integer
+          description: Total count of critical + high risk secrets
+          example: 30
+        estimated_migration_hours:
+          type: integer
+          description: Total engineering hours for remediation
+          example: 68
+        roi_multiplier:
+          type: string
+          description: Return on investment (savings / migration cost)
+          example: "26.7x"
+
+    Error:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          description: Error type or code
+          example: authentication_failed
+        message:
+          type: string
+          description: Human-readable error message
+          example: "Vault token is invalid or expired"
+        details:
+          type: object
+          description: Additional error context
+          additionalProperties: true
+
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      description: |
+        Vault token for authentication.
+        Set VAULT_TOKEN environment variable or pass as Bearer token.
+
+security:
+  - BearerAuth: []
